@@ -1,5 +1,5 @@
 first=true
-for file in data/*.csv; do
+for file in data/viirs*.csv; do
     if [ "$file" = "data/combined.csv" ]; then
         continue
     elif [ "$first" = true ]; then

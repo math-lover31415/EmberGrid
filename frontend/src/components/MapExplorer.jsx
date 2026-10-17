@@ -20,21 +20,15 @@ const MAP_OPTIONS = [
   { id: "terrain", label: "Terrain", icon: Mountain },
 ];
 
-function streetStyle(theme) {
+function streetStyle() {
   return {
     version: 8,
     sources: {
       base: {
         type: "raster",
-        tiles: [
-          theme === "dark"
-            ? "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
-            : "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-        ],
+        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
         tileSize: 256,
-        attribution: theme === "dark"
-          ? "&copy; OpenStreetMap contributors &copy; CARTO"
-          : "&copy; OpenStreetMap contributors",
+        attribution: "&copy; OpenStreetMap contributors",
       },
     },
     layers: [{ id: "base", type: "raster", source: "base" }],
@@ -71,7 +65,7 @@ const BASE_STYLES = {
 };
 
 function getMapStyle(type, theme) {
-  if (type === "street") return streetStyle(theme);
+  if (type === "street") return streetStyle();
 
   const style = BASE_STYLES[type];
   return {
@@ -285,7 +279,7 @@ export default function MapExplorer({ theme }) {
       <div className="map-heading">
         <span className="map-overline"><span className="status-dot" /> PLANETARY OBSERVATION</span>
         <h1>Your world,<br /><em>in perspective.</em></h1>
-        <p>Explore every corner of the living planet.</p>
+        <p>Basemap preview. No fire-risk or weather data is loaded.</p>
       </div>
 
       <div className="map-search-panel">
@@ -383,14 +377,14 @@ export default function MapExplorer({ theme }) {
           <div className="layer-extension">
             <span className="extension-dot" />
             <span>FIRE RISK & WEATHER LAYERS</span>
-            <small>Future layer extension</small>
+            <small>Placeholder · no data source connected</small>
           </div>
         </div>
       )}
 
       <div className="map-atmosphere">
         <span className="atmosphere-icon"><Orbit size={14} /></span>
-        <span>{mapReady ? "GLOBAL MAP · LIVE" : "CONNECTING TO ATLAS"}</span>
+        <span>{mapReady ? "BASEMAP ONLY · NO PREDICTION DATA" : "LOADING BASEMAP"}</span>
       </div>
       <div className="map-scale-label">NAVIGATE · OBSERVE · UNDERSTAND</div>
       {/* Future layer hook: attach fire-risk contours and weather sources here when APIs exist. */}

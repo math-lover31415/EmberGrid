@@ -7,7 +7,7 @@ const MapExplorer = lazy(() => import("../components/MapExplorer.jsx"));
 
 export default function HomePage() {
   const { user, logout } = useAuth();
-  const [theme, setTheme] = useState("dark");
+  const [theme, setTheme] = useState("light");
   const [logoutError, setLogoutError] = useState("");
 
   async function handleLogout() {

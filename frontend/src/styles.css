@@ -359,7 +359,16 @@ button:focus-visible, input:focus-visible, a:focus-visible {
   letter-spacing: 0.1em;
 }
 .map-canvas { position: absolute; inset: 0; background: #0d1724; }
+.map-workspace > .map-canvas.maplibregl-map {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
 .map-canvas .maplibregl-canvas { outline: 0; }
+.theme-dark .map-canvas .maplibregl-canvas {
+  filter: invert(1) hue-rotate(180deg) brightness(0.72) contrast(0.9);
+}
 .map-vignette {
   position: absolute;
   z-index: 1;

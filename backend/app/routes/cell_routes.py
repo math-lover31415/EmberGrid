@@ -12,5 +12,13 @@ def get_cell(cell_id):
     )
     return jsonify(result),200
 
-
+@cell_bp.get("/<cell_id>/timeseries")
+def get_cell_timeseries(cell_id):
+    result= cell_services.get_cell_timeseries(
+        cell_id= cell_id,
+        features= request.args.get("feature"),
+        start_str=request.args.get("start"),
+        end_str=request.args.get("end")
+    )
+    return jsonify(result),200
 

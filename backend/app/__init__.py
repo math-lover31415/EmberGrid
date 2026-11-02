@@ -21,6 +21,10 @@ def create_app(env=None):
     
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     
+    from app.routes.heatmap_routes import heatmap_bp
+    app.register_blueprint(heatmap_bp, url_prefix="/api/v1/heatmap")
+    
+    
     @app.get("/health")
     def health():
         return {"status": "ok"}, 200

@@ -12,7 +12,8 @@ def get_heatmap():
         a.get("date"),
         a.get("bbox"),
         a.get("layer","risk"),
-        a.get("format","geojson"),
         a.get("limit"),
         a.get("offset"))
     return jsonify(result),200
+
+

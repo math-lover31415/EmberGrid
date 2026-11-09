@@ -25,6 +25,10 @@ def create_app(env=None):
     app.register_blueprint(heatmap_bp, url_prefix="/api/v1/heatmap")
     
     
+    from app.routes.history_routes import history_bp
+    app.register_blueprint(history_bp, url_prefix="/api/v1/history")
+    
+    
     @app.get("/health")
     def health():
         return {"status": "ok"}, 200

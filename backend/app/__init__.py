@@ -28,6 +28,8 @@ def create_app(env=None):
     from app.routes.history_routes import history_bp
     app.register_blueprint(history_bp, url_prefix="/api/v1/history")
     
+    app.json.compact = True
+    
     
     @app.get("/health")
     def health():

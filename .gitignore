@@ -2,7 +2,7 @@
 __pycache__/
 *.py[codz]
 *$py.class
-
+backend/app/db/
 # C extensions
 *.so
 

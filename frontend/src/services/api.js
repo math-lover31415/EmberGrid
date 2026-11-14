@@ -12,6 +12,12 @@ export class ApiError extends Error {
   }
 }
 
+function getErrorMessage(payload) {
+  if (typeof payload.error === "string") return payload.error;
+  if (payload.error?.message) return payload.error.message;
+  return payload.message || "Something went wrong. Please try again.";
+}
+
 function readSession() {
   const stored = localStorage.getItem(SESSION_KEY);
   if (!stored) return null;
@@ -56,7 +62,7 @@ async function request(path, { body, token, signal } = {}) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new ApiError(
-      payload.error || payload.message || "Something went wrong. Please try again.",
+      getErrorMessage(payload),
       response.status,
     );
   }
@@ -82,7 +88,7 @@ async function get(path, token, signal) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new ApiError(
-      payload.error || payload.message || "Something went wrong. Please try again.",
+      getErrorMessage(payload),
       response.status,
     );
   }
@@ -162,4 +168,66 @@ export const api = {
       clearSession();
     }
   },
+
+  heatmap({ date, layer = "risk", bbox, limit, offset } = {}) {
+    const params = new URLSearchParams({ layer, format: "geojson" });
+    if (date) params.set("date", date);
+    if (bbox) params.set("bbox", bbox);
+    if (limit) params.set("limit", String(limit));
+    if (offset) params.set("offset", String(offset));
+    return getPublic(`/heatmap?${params}`);
+  },
+
+  historyMonths() {
+    return getPublic("/history/months");
+  },
+
+  historyGrid(to) {
+    return getPublic(`/history/grid?to=${encodeURIComponent(to)}`);
+  },
+
+  historyDetail(bbox, to) {
+    const params = new URLSearchParams({ bbox, to });
+    return getPublic(`/history/detail?${params}`);
+  },
+
+  historyRisk(date) {
+    const suffix = date ? `?date=${encodeURIComponent(date)}` : "";
+    return getPublic(`/history/risk${suffix}`);
+  },
+
+  historyPoint(lat, lon, deg) {
+    const params = new URLSearchParams({
+      lat: Number(lat).toFixed(5),
+      lon: Number(lon).toFixed(5),
+      deg: String(deg),
+    });
+    return getPublic(`/history/point?${params}`);
+  },
+
+  cell(cellId, date) {
+    const params = date ? `?date=${encodeURIComponent(date)}` : "";
+    return getPublic(`/cells/${encodeURIComponent(cellId)}${params}`);
+  },
+
+  timeseries(cellId, feature, start, end) {
+    const params = new URLSearchParams({ feature, start, end });
+    return getPublic(`/cells/${encodeURIComponent(cellId)}/timeseries?${params}`);
+  },
 };
+
+async function getPublic(path, signal) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { signal });
+  } catch (error) {
+    if (error.name === "AbortError") throw error;
+    throw new ApiError(
+      "Unable to reach the server. Check your connection and try again.",
+      0,
+    );
+  }
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new ApiError(getErrorMessage(payload), response.status);
+  return payload;
+}

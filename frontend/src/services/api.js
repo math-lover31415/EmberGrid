@@ -2,7 +2,7 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(
   /\/+$/,
   "",
 );
-const SESSION_KEY = "wildfire-atlas-session";
+const SESSION_KEY = "ember-grid-session";
 
 export class ApiError extends Error {
   constructor(message, status) {

@@ -247,6 +247,90 @@ button:focus-visible, input:focus-visible, a:focus-visible {
 }
 .footer-star { padding-left: 5px; color: var(--accent); }
 
+/* Simple, centered authentication layout */
+.auth-shell {
+  justify-content: space-between;
+  padding: 28px clamp(20px, 5vw, 64px) 20px;
+  background: #f4f7f9;
+  color: #1d2a36;
+}
+.auth-shell .auth-brand {
+  color: #1d2a36;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+}
+.auth-shell .brand-mark {
+  border: 1px solid #cbd5dc;
+  color: #28745a;
+  background: #ffffff;
+  box-shadow: none;
+}
+.auth-content {
+  display: grid;
+  width: 100%;
+  flex: 1;
+  place-items: center;
+  grid-template-columns: 1fr;
+  margin: 24px 0;
+}
+.auth-card {
+  width: min(420px, 100%);
+  padding: 38px;
+  border: 1px solid #dbe3e8;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(38, 55, 69, 0.09);
+  backdrop-filter: none;
+}
+.auth-card .card-heading h2 {
+  color: #1d2a36;
+  font-size: 25px;
+  text-align: left;
+}
+.auth-card .card-heading p,
+.auth-card label {
+  color: #667680;
+}
+.auth-card .card-heading p { font-size: 14px; }
+.auth-card .auth-form label { color: #40515d; font-size: 13px; }
+.auth-card .input-wrap {
+  height: 50px;
+  border: 1px solid #ccd6dc;
+  border-radius: 6px;
+  color: #7d8b94;
+  background: #ffffff;
+}
+.auth-card .input-wrap:focus-within {
+  border-color: #28745a;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(40, 116, 90, 0.10);
+}
+.auth-card .input-wrap input { color: #1d2a36; font-size: 14px; }
+.auth-card .input-wrap input::placeholder { color: #98a4ab; }
+.auth-card .primary-button {
+  min-height: 50px;
+  border: 1px solid #28745a;
+  border-radius: 6px;
+  color: #ffffff;
+  background: #28745a;
+  box-shadow: none;
+  font-size: 14px;
+}
+.auth-card .primary-button:hover:not(:disabled) {
+  transform: none;
+  background: #205f49;
+  box-shadow: none;
+  filter: none;
+}
+.auth-card .auth-switch { color: #667680; font-size: 13px; }
+.auth-card .auth-switch a { color: #28745a; }
+.auth-card .form-error { color: #b42318; }
+.auth-shell .auth-footer {
+  justify-content: space-between;
+  color: #7d8b94;
+  font-size: 9px;
+}
+
 .app-loading {
   display: flex;
   min-height: 100vh;

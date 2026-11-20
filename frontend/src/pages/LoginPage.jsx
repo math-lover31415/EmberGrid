@@ -28,14 +28,13 @@ export default function LoginPage() {
 
   return (
     <AuthLayout
-      eyebrow="FIELD ACCESS · 01"
-      title={<>See the world<br /><span>in a new light.</span></>}
-      subtitle="A clearer view of the landscapes we depend on starts here."
+      eyebrow="Account access"
+      title="Sign in"
+      subtitle="Sign in to view fire risk and map activity."
     >
       <div className="card-heading">
-        <span className="card-kicker">WELCOME BACK</span>
-        <h2>Sign in to your atlas</h2>
-        <p>Enter your credentials to continue your journey.</p>
+        <h2>Sign in</h2>
+        <p>Enter your account details.</p>
       </div>
       <form className="auth-form" onSubmit={handleSubmit}>
         <label htmlFor="login-email">Email address</label>
@@ -68,14 +67,13 @@ export default function LoginPage() {
         </div>
         {error && <p className="form-error" role="alert">{error}</p>}
         <button className="primary-button" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Signing in..." : "Enter the atlas"}
+          {isSubmitting ? "Signing in..." : "Sign in"}
           {!isSubmitting && <ArrowRight size={17} />}
         </button>
       </form>
       <p className="auth-switch">
-        New to the atlas? <Link to="/register">Create an account</Link>
+        New to Ember Grid? <Link to="/register">Create an account</Link>
       </p>
-      <div className="secure-note"><span /> SECURE SESSION · ENCRYPTED IN TRANSIT</div>
     </AuthLayout>
   );
 }

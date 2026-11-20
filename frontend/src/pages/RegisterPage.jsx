@@ -38,14 +38,13 @@ export default function RegisterPage() {
 
   return (
     <AuthLayout
-      eyebrow="FIELD ACCESS · 02"
-      title={<>A new perspective<br /><span>starts with you.</span></>}
-      subtitle="Create your space and start exploring the landscapes that shape our planet."
+      eyebrow="Account registration"
+      title="Create account"
+      subtitle="Create an account to use Ember Grid."
     >
       <div className="card-heading">
-        <span className="card-kicker">JOIN THE EXPLORATION</span>
         <h2>Create your account</h2>
-        <p>One small step toward a wider view.</p>
+        <p>Enter your details to get started.</p>
       </div>
       <form className="auth-form" onSubmit={handleSubmit}>
         <label htmlFor="register-email">Email address</label>
@@ -101,7 +100,6 @@ export default function RegisterPage() {
       <p className="auth-switch">
         Already have an account? <Link to="/login">Sign in</Link>
       </p>
-      <div className="secure-note"><span /> YOUR EXPLORATION STARTS HERE</div>
     </AuthLayout>
   );
 }

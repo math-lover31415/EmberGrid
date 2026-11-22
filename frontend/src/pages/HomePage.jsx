@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from "react";
-import { LogOut, Moon, Orbit, Sun } from "lucide-react";
+import { Grid3X3, LogOut, Moon, Sun } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 
@@ -22,9 +22,9 @@ export default function HomePage() {
   return (
     <main className={`atlas-shell theme-${theme}`}>
       <header className="atlas-topbar">
-        <Link className="atlas-brand" to="/" aria-label="Wildfire Atlas home">
-          <span className="brand-mark"><Orbit size={18} /></span>
-          <span>WILDFIRE<span className="brand-accent"> / </span>ATLAS</span>
+        <Link className="atlas-brand" to="/" aria-label="Ember Grid home">
+          <span className="brand-mark"><Grid3X3 size={18} /></span>
+          <span>EMBER GRID</span>
         </Link>
         <div className="topbar-meta">
           <span className="live-indicator"><i /> GLOBAL VIEW</span>

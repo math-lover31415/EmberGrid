@@ -10,7 +10,7 @@ function LoadingScreen() {
   return (
     <main className="app-loading" aria-label="Loading application">
       <span className="loading-orbit" />
-      <span>Preparing your atlas</span>
+      <span>Preparing Ember Grid</span>
     </main>
   );
 }

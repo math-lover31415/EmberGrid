@@ -14,10 +14,6 @@ def get_months():
 def get_grid():
     return jsonify(history_services.get_grid(request.args.get("to"))), 200
 
-@history_bp.get("/risk")
-def get_risk():
-    return jsonify(history_services.get_risk(request.args.get("date"))), 200
-
 @history_bp.get("/point")
 def get_point():
     a = request.args

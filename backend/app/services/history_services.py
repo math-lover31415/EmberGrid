@@ -43,24 +43,6 @@ def get_grid(to_str):
         "max_count": max((n for _, _, n in cells), default=0),
         "cells": cells,
     }
-def get_risk(date_str):
-    from app.ml import get_model
-    version = get_model().version
-    day = parser_date(date_str, "date") or db.session.execute(
-        text("SELECT max(date) FROM risk_predictions WHERE model_version = :v"), {"v": version}).scalar()
-    if day is None:
-        raise NotFound(f"no risk_predictions for model {version}")
-    rows = db.session.execute(text("""
-        SELECT floor(round(c.lat::numeric / 0.1, 9))::int, floor(round(c.lon::numeric / 0.1, 9))::int,
-               round(avg(p.calibrated_prob)::numeric, 4)::float
-        FROM risk_predictions p JOIN cells c USING (cell_id)
-        WHERE p.date = :d AND p.model_version = :v
-        GROUP BY 1, 2 ORDER BY 1, 2"""), {"d": day, "v": version}).all()
-    if not rows:
-        raise NotFound(f"no risk_predictions for {day} ({version})")
-    return {"cell_deg": CELL_DEG, "date": day.isoformat(), "model": version, "cells": [list(r) for r in rows]}
-
-
 def get_detail(bbox_str, to_str):
     bbox = parse_bbox(bbox_str)
     if bbox is None:

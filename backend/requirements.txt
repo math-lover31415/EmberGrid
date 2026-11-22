@@ -1,0 +1,14 @@
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy>=2.0,<2.1
+psycopg2-binary==2.9.13
+python-dotenv==1.2.4
+PyJWT==2.15.1
+pwdlib[argon2]==0.3.1
+numpy
+pandas
+requests
+flask-cors
+flask-compress
+scikit-learn
+gunicorn

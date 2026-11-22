@@ -7,7 +7,8 @@ import pandas as pd
 
 from app import create_app
 from app.extensions import db
-from app.jobs import live, load_fire, load_weather, predict_day
+# from app.jobs import live, load_fire, load_weather, predict_day
+from app.jobs import build_fire_grid, live, load_fire, load_weather, predict_day
 from app.jobs.db_util import run_procedure
 
 
@@ -45,6 +46,15 @@ def step_fire(start, end):
     in_feed, new = load_fire.ingest_firms_df(feed, source)
     return f"{in_feed} detections in feed, {new} new"
 
+def step_grid(start, end):
+    """Move the data window forward to `end` and rebuild the history grid, so the map follows live data."""
+    moved = db.session.execute(
+        db.text("UPDATE data_window SET end_date = :end WHERE end_date < :end"), {"end": end}).rowcount
+    db.session.commit()
+    cells, in_grid, in_events, lo, hi = build_fire_grid.build()
+    if in_grid != in_events:
+        raise RuntimeError(f"grid has {in_grid} fires but fire_events has {in_events}")
+    return f"window {lo}..{hi}{' (extended)' if moved else ''}, {cells} grid rows"
 
 def step_weather(start, end):
     points = pd.read_sql(db.text("""
@@ -92,7 +102,8 @@ def step_predict(start, end):
     return f"{predict_day.run(start, end)} predictions"
 
 
-STEPS = {"scope": step_scope, "fire": step_fire, "weather": step_weather,
+# STEPS = {"scope": step_scope, "fire": step_fire, "weather": step_weather,
+STEPS = {"scope": step_scope, "fire": step_fire, "grid": step_grid, "weather": step_weather,
          "labels": step_labels, "features": step_features, "predict": step_predict}
 
 

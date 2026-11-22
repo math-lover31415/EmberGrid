@@ -37,19 +37,20 @@ def get_heatmap(date_str, bbox_str, layer,limit_str , offset_str):
         filters=[RiskPrediction.model_version==model.version]
     else:
         src,value_col= DailyFeature,DailyFeature.fwi
+        filters=[]  
     d = parser_date(date_str)
     if d is None:
-        d = db.session.query(func.max(src.date)).scalar()
+        d = db.session.query(func.max(src.date)).filter(*filters).scalar()   
         if d is None:
             raise NotFound(f"no '{layer}' data loaded yet")
     filters.append(src.date == d)
     
     # No date returned 
-    if db.session.query(src.cell_id).first() is None:
+    if db.session.query(src.cell_id).filter(*filters).first() is None:      
         raise NotFound(f"no '{layer}' data for {d.isoformat()}")
     
     # cell inclusion when center inside the bbox
-    q = db.session.query(Cell, value_col).join(src, src.cell_id == Cell.cell_id)
+    q = db.session.query(Cell, value_col).join(src, src.cell_id == Cell.cell_id).filter(*filters)  
     if bbox:
         min_lon, min_lat, max_lon, max_lat = bbox
         q = q.filter(Cell.lon >= min_lon, Cell.lon <= max_lon, Cell.lat >= min_lat, Cell.lat <= max_lat)

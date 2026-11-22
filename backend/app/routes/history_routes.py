@@ -18,6 +18,10 @@ def get_grid():
 def get_risk():
     return jsonify(history_services.get_risk(request.args.get("date"))), 200
 
+@history_bp.get("/point")
+def get_point():
+    a = request.args
+    return jsonify(history_services.get_point(a.get("lat"), a.get("lon"), a.get("deg"))), 200
 
 @history_bp.get("/detail")
 def get_detail():

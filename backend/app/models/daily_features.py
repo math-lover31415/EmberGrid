@@ -12,3 +12,5 @@ class DailyFeature(db.Model):
     rainfall_mm = db.Column(db.Float)
     wind_speed = db.Column(db.Float)
     wind_dir = db.Column(db.Float)
+    fire_count = db.Column(db.Integer)
+    max_frp = db.Column(db.Float)

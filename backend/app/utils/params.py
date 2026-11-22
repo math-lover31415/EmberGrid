@@ -8,9 +8,11 @@ def parser_date(value,name="date"):
         return None
     try:
         return date.fromisoformat(value)
-    finally:
+    except ValueError:
         raise APIError(f"'{name}' must be YYYY-MM-DD")
-    
+
+parse_date = parser_date
+
 def parse_bbox(value):
     if value is None:
         return None

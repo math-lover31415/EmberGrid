@@ -10,11 +10,12 @@ def _execute_values(sql,rows):
     conn= db.engine.raw_connection()
     try:
         execute_values(conn.cursor(),sql,rows,page_size=1000)
+        conn.commit() 
     finally:
         conn.close()
         
 def upsert_weather_df(df: pd.DataFrame,method):
-    if df.empty():
+    if df.empty:
         return 0 
     cols= ["weather_point_id", "date"] + RAW
     data= df[cols].astype(object).where(df[cols].notna(),None)

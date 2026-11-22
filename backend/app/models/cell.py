@@ -10,4 +10,5 @@ class Cell(db.Model):
     district= db.Column(db.String)
     elevation = db.Column(db.Float)
     
-    __table_args__= (db.Index("ix_cells_lat_lon","lon"),)
+    # __table_args__= (db.Index("ix_cells_lat_lon","lon"),)
+    __table_args__ = (db.Index("ix_cells_lat_lon", "lat", "lon"),)

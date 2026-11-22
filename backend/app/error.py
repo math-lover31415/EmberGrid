@@ -4,6 +4,7 @@ from werkzeug.exceptions import HTTPException
 
 class APIError(Exception):
     status_code= 400
+    code = "bad_request"
     
     def __init__(self,message,status_code=None):
         super().__init__(message)

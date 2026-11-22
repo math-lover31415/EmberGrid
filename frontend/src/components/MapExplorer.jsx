@@ -113,7 +113,48 @@ function toPlace(result) {
     id: result.place_id,
     label: result.display_name,
     center: [longitude, latitude],
+    bbox: toBbox(result.boundingbox, longitude, latitude),
   };
+}
+
+// Nominatim gives [south, north, west, east] as strings; we use [west, south, east, north].
+// Tiny places (a village, a street) are padded so the box is at least ~0.2 degrees wide.
+function toBbox(box, lon, lat) {
+  const [south, north, west, east] = (box || []).map(Number);
+  const valid = [south, north, west, east].every(Number.isFinite);
+  const pad = (low, high, mid) => (high - low < 0.2 ? [mid - 0.1, mid + 0.1] : [low, high]);
+  const [w, e] = pad(valid ? west : lon, valid ? east : lon, valid ? (west + east) / 2 : lon);
+  const [s, n] = pad(valid ? south : lat, valid ? north : lat, valid ? (south + north) / 2 : lat);
+  return [w, s, e, n];
+}
+
+// Keep only the grid cells ([row, col, count]) that touch the box [w, s, e, n].
+function cropGrid(grid, bbox) {
+  const deg = grid.cell_deg || 0.1;
+  const [w, s, e, n] = bbox;
+  const cells = (grid.cells || []).filter(([row, col]) => (
+    (col + 1) * deg >= w && col * deg <= e && (row + 1) * deg >= s && row * deg <= n
+  ));
+  return { ...grid, cells };
+}
+
+const bboxText = (bbox) => bbox.map((value) => value.toFixed(4)).join(",");
+const bboxArea = (bbox) => (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]);
+
+// The backend returns at most 20000 cells per call; follow next_offset until everything is in.
+async function loadRiskForPlace(bbox, date) {
+  let offset = 0;
+  let first = null;
+  const features = [];
+  for (let page = 0; page < 10; page += 1) {
+    const data = await api.heatmap({ date, layer: "risk", bbox: bboxText(bbox), limit: 20000, offset });
+    if (!first) first = data;
+    features.push(...(data.features || []));
+    const next = data.metadata?.next_offset;
+    if (next === null || next === undefined) break;
+    offset = next;
+  }
+  return { ...first, features };
 }
 
 export default function MapExplorer({ theme }) {
@@ -134,8 +175,10 @@ export default function MapExplorer({ theme }) {
   const [mapReady, setMapReady] = useState(false);
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
   const [mapError, setMapError] = useState("");
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [viewMode, setViewMode] = useState("risk");
+  const [selectedDate, setSelectedDate] = useState("");
+  const [viewMode, setViewMode] = useState("history");
+  const [place, setPlace] = useState(null);
+  const [riskDate, setRiskDate] = useState("");
   const [historyMonths, setHistoryMonths] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [historyData, setHistoryData] = useState(null);
@@ -152,7 +195,8 @@ export default function MapExplorer({ theme }) {
   const [timeseriesStatus, setTimeseriesStatus] = useState("idle");
   const [selectedFeature, setSelectedFeature] = useState("risk");
   const currentStyle = useMemo(() => getMapStyle(mapType, theme), [mapType, theme]);
-
+  const viewModeRef = useRef(viewMode);
+viewModeRef.current = viewMode;
   const markUserLocation = useCallback((position) => {
     const location = [position.coords.longitude, position.coords.latitude];
     if (!mapRef.current) return;
@@ -256,6 +300,7 @@ export default function MapExplorer({ theme }) {
   }, []);
 
   const paintHistoryLayer = useCallback((data) => {
+  if (viewModeRef.current !== "history") return;
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     if (map.getLayer(HISTORY_FILL)) map.removeLayer(HISTORY_FILL);
@@ -275,6 +320,10 @@ export default function MapExplorer({ theme }) {
       },
       properties: { value },
     }));
+    const sorted = (data.cells || []).map((c) => c[2]).sort((a, b) => a - b);
+const q = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] || 0;
+const stops = [1, q(0.5), q(0.75), q(0.9), q(0.98)];
+for (let i = 1; i < stops.length; i += 1) if (stops[i] <= stops[i - 1]) stops[i] = stops[i - 1] + 1;
     map.addSource(HISTORY_SOURCE, { type: "geojson", data: { type: "FeatureCollection", features } });
     map.addLayer({
       id: HISTORY_FILL,
@@ -282,33 +331,57 @@ export default function MapExplorer({ theme }) {
       source: HISTORY_SOURCE,
       paint: {
         "fill-color": [
-          "interpolate", ["linear"], ["coalesce", ["get", "value"], 0],
-          0, "#ffffb2", 1, "#fecc5c", 5, "#fd8d3c", 15, "#e31a1c", 30, "#7f0000",
-        ],
-        "fill-opacity": 0.75,
+	  "interpolate", ["linear"], ["coalesce", ["get", "value"], 0],
+	  0, "#2e9e5b",
+	  stops[0], "#8cc152",
+	  stops[1], "#f5c84c",
+	  stops[2], "#ee8a3c",
+	  stops[3], "#d9482b",
+	  stops[4], "#7f0f2a",
+	],
+	"fill-opacity": 0.7,
       },
     });
   }, []);
 
+  const clearRiskLayer = useCallback(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    if (map.getLayer(RISK_FILL)) map.removeLayer(RISK_FILL);
+    if (map.getLayer(RISK_OUTLINE)) map.removeLayer(RISK_OUTLINE);
+    if (map.getSource(RISK_SOURCE)) map.removeSource(RISK_SOURCE);
+  }, []);
+
   useEffect(() => {
+    if (viewMode !== "risk") return undefined;
+    setRiskError("");
+    setSelectedCell(null);
+    if (!place) {
+      setRiskData(null);
+      setRiskStatus("noplace");
+      clearRiskLayer();
+      return undefined;
+    }
     let active = true;
     setRiskStatus("loading");
-    setRiskError("");
-    if (viewMode !== "risk") return undefined;
-    api.heatmap({ date: selectedDate, layer: "risk", limit: 5000, offset: 0 })
+    clearRiskLayer();
+    // No date typed yet -> the backend picks the latest date that has predictions.
+    loadRiskForPlace(place.bbox, selectedDate || undefined)
       .then((data) => {
         if (!active) return;
         setRiskData(data);
-        setRiskStatus(data.features?.length ? "ready" : "empty");
+        if (data.metadata?.date && !selectedDate) setRiskDate(data.metadata.date);
+        setRiskStatus(data.features.length ? "ready" : "empty");
         if (mapRef.current?.isStyleLoaded()) paintRiskLayer(data);
       })
       .catch((error) => {
         if (!active) return;
-        setRiskStatus("error");
-        setRiskError(error.message);
+        setRiskData(null);
+        setRiskStatus(error.status === 404 ? "empty" : "error");
+        setRiskError(error.status === 404 ? "" : error.message);
       });
     return () => { active = false; };
-  }, [paintRiskLayer, selectedDate, viewMode]);
+  }, [paintRiskLayer, clearRiskLayer, selectedDate, viewMode, place]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -351,16 +424,24 @@ export default function MapExplorer({ theme }) {
     if (viewMode !== "history" || !historyMonths.length) return undefined;
     let active = true;
     setHistoryStatus("loading");
-    api.historyGrid(historyMonths[historyIndex])
+    const month = historyMonths[historyIndex];
+    // A small place (city / district) gets the fine 0.01 degree cells; a big one (state)
+    // gets the national 0.1 degree grid cut down to the place.
+    const small = place && bboxArea(place.bbox) <= 9;
+    const load = small
+      ? api.historyDetail(bboxText(place.bbox), month).catch(() => api.historyGrid(month).then((grid) => cropGrid(grid, place.bbox)))
+      : api.historyGrid(month).then((grid) => (place ? cropGrid(grid, place.bbox) : grid));
+    load
       .then((data) => {
         if (!active) return;
+        setHistoryError("");
         setHistoryData(data);
         setHistoryStatus(data.cells?.length ? "ready" : "empty");
         if (mapRef.current?.isStyleLoaded()) paintHistoryLayer(data);
       })
       .catch((error) => { if (active) { setHistoryStatus("error"); setHistoryError(error.message); } });
     return () => { active = false; };
-  }, [historyIndex, historyMonths, paintHistoryLayer, viewMode]);
+  }, [historyIndex, historyMonths, paintHistoryLayer, viewMode, place]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -382,9 +463,9 @@ export default function MapExplorer({ theme }) {
         })
         .catch((error) => { if (current === ticket) setHistoryError(error.message); });
     };
-    map.on("moveend", loadDetail);
+        map.on("moveend", loadDetail);
     loadDetail();
-    return () => map.off("moveend", loadDetail);
+    return () => { ticket += 1; map.off("moveend", loadDetail); };
   }, [historyIndex, historyMonths, mapReady, paintHistoryLayer, viewMode]);
 
   useEffect(() => {
@@ -430,7 +511,7 @@ export default function MapExplorer({ theme }) {
     setCellError("");
     setTimeseries(null);
     setTimeseriesStatus("idle");
-    api.cell(cellId, selectedDate)
+    api.cell(cellId, selectedDate || riskDate)
       .then((data) => {
         setSelectedCell(data);
         setCellStatus("ready");
@@ -439,7 +520,7 @@ export default function MapExplorer({ theme }) {
         setCellStatus("error");
         setCellError(error.message);
       });
-  }, [selectedDate]);
+  }, [selectedDate, riskDate]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -465,7 +546,7 @@ export default function MapExplorer({ theme }) {
 
   function loadTimeseries(feature) {
     if (!selectedCell) return;
-    const end = selectedDate;
+    const end = selectedCell.date || selectedDate || riskDate;
     const startDate = new Date(`${end}T00:00:00Z`);
     startDate.setUTCDate(startDate.getUTCDate() - 13);
     const start = startDate.toISOString().slice(0, 10);
@@ -518,7 +599,11 @@ export default function MapExplorer({ theme }) {
 
   const selectPlace = useCallback((place) => {
     if (!mapRef.current) return;
-    mapRef.current.flyTo({ center: place.center, zoom: 10, duration: 1400 });
+    setPlace(place);
+    mapRef.current.fitBounds(
+      [[place.bbox[0], place.bbox[1]], [place.bbox[2], place.bbox[3]]],
+      { padding: 60, maxZoom: 11, duration: 1400 },
+    );
     if (!searchMarkerRef.current) {
       const element = document.createElement("div");
       element.className = "search-location-marker";
@@ -535,6 +620,16 @@ export default function MapExplorer({ theme }) {
     setHasSearched(false);
     setSearchError("");
   }, []);
+
+  function clearPlace() {
+    selectedResultRef.current = "";
+    setSearchText("");
+    setResults([]);
+    setHasSearched(false);
+    setPlace(null);
+    setSelectedCell(null);
+    if (searchMarkerRef.current) { searchMarkerRef.current.remove(); searchMarkerRef.current = null; }
+  }
 
   function recenter() {
     if (userMarkerRef.current && mapRef.current) {
@@ -565,9 +660,9 @@ export default function MapExplorer({ theme }) {
         {viewMode === "risk" ? (
           <>
             <label htmlFor="risk-date"><CalendarDays size={14} /> FORECAST DATE</label>
-            <input id="risk-date" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
+            <input id="risk-date" type="date" value={selectedDate || riskDate} onChange={(event) => setSelectedDate(event.target.value)} />
             <span className={`risk-state risk-state-${riskStatus}`}>
-              {riskStatus === "loading" ? "Loading risk grid" : riskStatus === "error" ? "Unavailable" : riskStatus === "empty" ? "No data" : `${riskData?.features?.length || 0} cells`}
+              {riskStatus === "noplace" ? "Search a place" : riskStatus === "loading" ? "Loading risk grid" : riskStatus === "error" ? "Unavailable" : riskStatus === "empty" ? "No risk data here" : `${riskData?.features?.length || 0} cells`}
             </span>
           </>
         ) : (
@@ -600,10 +695,7 @@ export default function MapExplorer({ theme }) {
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                setSearchText("");
-                setResults([]);
-              }
+              if (event.key === "Escape") clearPlace();
             }}
           />
           {isSearching && <span className="search-spinner" aria-label="Searching" />}
@@ -611,7 +703,7 @@ export default function MapExplorer({ theme }) {
             <button
               className="clear-search"
               type="button"
-              onClick={() => { selectedResultRef.current = ""; setSearchText(""); setResults([]); setHasSearched(false); }}
+              onClick={clearPlace}
               aria-label="Clear search"
             >
               <X size={15} />
@@ -695,23 +787,29 @@ export default function MapExplorer({ theme }) {
         <span>{mapReady ? (viewMode === "risk" ? "FIRE RISK · PREDICTED PROBABILITY" : `FIRE HISTORY · CUMULATIVE HOTSPOTS${historyHover ? ` · ${historyHover}` : ""}`) : "LOADING BASEMAP"}</span>
       </div>
       <div className="map-scale-label">NAVIGATE · OBSERVE · UNDERSTAND</div>
+      {viewMode === "risk" && riskStatus === "noplace" && <div className="map-status risk-error" role="status">Search a place (a city, district or state) to see its fire risk.</div>}
+      {viewMode === "risk" && riskStatus === "empty" && <div className="map-status risk-error" role="status">No risk predictions for {place?.label.split(",")[0]}{selectedDate ? ` on ${selectedDate}` : ""}. Predictions only exist for areas and dates that have been scored.</div>}
       {riskError && <div className="map-status risk-error" role="alert"><AlertCircle size={14} /> {riskError}</div>}
       {historyError && viewMode === "history" && <div className="map-status risk-error" role="alert"><AlertCircle size={14} /> {historyError}</div>}
       {selectedCell && (
         <aside className="risk-detail-panel" aria-label="Selected cell risk details">
           <button className="detail-close" type="button" onClick={() => { setSelectedCell(null); setTimeseries(null); }} aria-label="Close risk details"><X size={15} /></button>
           <span className="detail-kicker"><Activity size={13} /> CELL {selectedCell.cell_id}</span>
-          <h2>{selectedCell.location.district || "Selected area"}</h2>
-          <p className="detail-location">{selectedCell.location.lat.toFixed(3)}, {selectedCell.location.lon.toFixed(3)} · {selectedCell.date}</p>
-          <div className={`risk-score risk-${selectedCell.prediction.level}`}>
-            <strong>{Math.round(selectedCell.prediction.probability * 100)}%</strong>
-            <span>{selectedCell.prediction.level} fire risk</span>
-          </div>
+          <h2>{selectedCell.location?.district || "Selected area"}</h2>
+          <p className="detail-location">{selectedCell.location?.lat?.toFixed(3)}, {selectedCell.location?.lon?.toFixed(3)} · {selectedCell.date}</p>
+          {selectedCell.prediction ? (
+            <div className={`risk-score risk-${selectedCell.prediction.level}`}>
+              <strong>{Math.round(selectedCell.prediction.probability * 100)}%</strong>
+              <span>{selectedCell.prediction.level} fire risk</span>
+            </div>
+          ) : (
+            <p className="detail-feedback">No prediction for this cell on {selectedCell.date}.</p>
+          )}
           <div className="weather-grid">
-            <span><b>{selectedCell.weather.temp_c ?? "—"}°</b> temperature</span>
-            <span><b>{selectedCell.weather.rainfall_mm ?? "—"} mm</b> rainfall</span>
-            <span><b>{selectedCell.weather.wind_speed ?? "—"}</b> wind speed</span>
-            <span><b>{selectedCell.static.elevation ?? "—"} m</b> elevation</span>
+            <span><b>{selectedCell.weather?.temp_c ?? "—"}°</b> temperature</span>
+            <span><b>{selectedCell.weather?.rainfall_mm ?? "—"} mm</b> rainfall</span>
+            <span><b>{selectedCell.weather?.wind_speed ?? "—"}</b> wind speed</span>
+            <span><b>{selectedCell.static?.elevation ?? "—"} m</b> elevation</span>
           </div>
           <div className="detail-actions">
             <label htmlFor="detail-feature">Trend</label>
@@ -719,8 +817,6 @@ export default function MapExplorer({ theme }) {
               <select id="detail-feature" value={selectedFeature} onChange={(event) => loadTimeseries(event.target.value)}>
                 <option value="risk">Predicted risk</option>
                 <option value="fwi">Fire weather index</option>
-                <option value="ndvi">Vegetation index</option>
-                <option value="ndmi">Moisture index</option>
                 <option value="rainfall_mm">Rainfall</option>
                 <option value="temp_c">Temperature</option>
               </select>

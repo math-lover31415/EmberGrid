@@ -1,22 +1,34 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AttributionControl, Map as MapLibreMap, Marker } from "maplibre-gl";
 import {
-  Activity,
   AlertCircle,
   CalendarDays,
-  ChevronDown,
   Compass,
   Crosshair,
   Layers2,
   MapPin,
-  Orbit,
-  Search,
-  Satellite,
+  Minus,
   Mountain,
+  Orbit,
+  Plus,
+  Satellite,
+  Search,
   X,
 } from "lucide-react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { api } from "../services/api.js";
+import {
+  HEAT_FILL,
+  addOverlayLayers,
+  applyBasemap,
+  initialStyle,
+  parseCellId,
+  planHistory,
+  planRisk,
+  setHeatmap,
+  setSelectedCell,
+} from "./mapData.js";
+import { HistoryCellPanel, RiskCellPanel } from "./CellDetailPanels.jsx";
 
 const STARTING_VIEW = { center: [0, 18], zoom: 2 };
 const MAP_OPTIONS = [
@@ -24,70 +36,10 @@ const MAP_OPTIONS = [
   { id: "satellite", label: "Satellite", icon: Satellite },
   { id: "terrain", label: "Terrain", icon: Mountain },
 ];
-
-function streetStyle() {
-  return {
-    version: 8,
-    sources: {
-      base: {
-        type: "raster",
-        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-        tileSize: 256,
-        attribution: "&copy; OpenStreetMap contributors",
-      },
-    },
-    layers: [{ id: "base", type: "raster", source: "base" }],
-  };
-}
-
-const BASE_STYLES = {
-  satellite: {
-    version: 8,
-    sources: {
-      base: {
-        type: "raster",
-        tiles: [
-          "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        ],
-        tileSize: 256,
-        attribution: "Tiles &copy; Esri",
-      },
-    },
-    layers: [{ id: "base", type: "raster", source: "base" }],
-  },
-  terrain: {
-    version: 8,
-    sources: {
-      base: {
-        type: "raster",
-        tiles: ["https://a.tile.opentopomap.org/{z}/{x}/{y}.png"],
-        tileSize: 256,
-        attribution: "&copy; OpenStreetMap contributors &copy; OpenTopoMap",
-      },
-    },
-    layers: [{ id: "base", type: "raster", source: "base" }],
-  },
-};
-const RISK_SOURCE = "fire-risk-source";
-const RISK_FILL = "fire-risk-fill";
-const RISK_OUTLINE = "fire-risk-outline";
-const HISTORY_SOURCE = "fire-history-source";
-const HISTORY_FILL = "fire-history-fill";
-
-function getMapStyle(type, theme) {
-  if (type === "street") return streetStyle();
-
-  const style = BASE_STYLES[type];
-  return {
-    ...style,
-    layers: style.layers.map((layer) => ({
-      ...layer,
-      paint: theme === "dark"
-        ? { "raster-brightness-max": 0.82, "raster-saturation": -0.25 }
-        : { "raster-brightness-max": 1, "raster-saturation": 0 },
-    })),
-  };
-}
+const LOCATION_WAIT_MS = 2500; // how long the first heatmap load waits for the location fix
+const SLIDER_SETTLE_MS = 300; // history slider: load once the user stops dragging
+const NOTICE_MS = 6000;
+const NO_HEAT = { status: "idle", error: "", cellCount: 0, truncated: false, resolution: "" };
 
 // Keep geocoding behind one provider function so it can be swapped independently.
 async function searchPlaces(query, signal) {
@@ -128,33 +80,33 @@ function toBbox(box, lon, lat) {
   return [w, s, e, n];
 }
 
-// Keep only the grid cells ([row, col, count]) that touch the box [w, s, e, n].
-function cropGrid(grid, bbox) {
-  const deg = grid.cell_deg || 0.1;
-  const [w, s, e, n] = bbox;
-  const cells = (grid.cells || []).filter(([row, col]) => (
-    (col + 1) * deg >= w && col * deg <= e && (row + 1) * deg >= s && row * deg <= n
-  ));
-  return { ...grid, cells };
+function monthsBetween(first, last) {
+  const months = [];
+  const cursor = new Date(`${first}T00:00:00Z`);
+  const end = new Date(`${last}T00:00:00Z`);
+  while (cursor <= end) {
+    months.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return months;
 }
 
-const bboxText = (bbox) => bbox.map((value) => value.toFixed(4)).join(",");
-const bboxArea = (bbox) => (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]);
-
-// The backend returns at most 20000 cells per call; follow next_offset until everything is in.
-async function loadRiskForPlace(bbox, date) {
-  let offset = 0;
-  let first = null;
-  const features = [];
-  for (let page = 0; page < 10; page += 1) {
-    const data = await api.heatmap({ date, layer: "risk", bbox: bboxText(bbox), limit: 20000, offset });
-    if (!first) first = data;
-    features.push(...(data.features || []));
-    const next = data.metadata?.next_offset;
-    if (next === null || next === undefined) break;
-    offset = next;
+// The cell under the cursor, read from the rendered heatmap feature (no request needed).
+function cellFromFeature(feature, mode, month) {
+  const props = feature.properties || {};
+  if (mode === "risk") {
+    const position = parseCellId(props.cell_id);
+    if (!position) return null;
+    return { kind: "risk", cellId: props.cell_id, ...position, deg: 0.01, value: props.value, level: props.level };
   }
-  return { ...first, features };
+  return { kind: "history", row: props.row, col: props.col, deg: props.deg, value: props.value, month };
+}
+
+function hoverLabel(cell) {
+  if (cell.kind === "risk") {
+    return cell.value == null ? "no prediction" : `${Math.round(cell.value * 100)}% ${cell.level || ""} risk`.trim();
+  }
+  return `${Number(cell.value || 0).toLocaleString()} fires in this cell`;
 }
 
 export default function MapExplorer({ theme }) {
@@ -162,9 +114,20 @@ export default function MapExplorer({ theme }) {
   const mapRef = useRef(null);
   const userMarkerRef = useRef(null);
   const searchMarkerRef = useRef(null);
-  const selectedThemeRef = useRef(theme);
-  const lastStyleKeyRef = useRef(`street:${theme}`);
   const selectedResultRef = useRef("");
+  // True once the map has loaded and our heatmap layers exist. (map.isStyleLoaded() is
+  // not used: it is false whenever tiles are still loading, e.g. during the fly-to after
+  // a search, which made finished heatmap requests skip painting.)
+  const readyRef = useRef(false);
+  const basemapRef = useRef({ type: "street", theme }); // what the map currently shows
+  const wantedBasemapRef = useRef({ type: "street", theme });
+  // The dataset on screen or loading: only the newest request (ticket) may paint.
+  const heatRef = useRef({ ticket: 0, plan: null, controller: null });
+  const locatingRef = useRef(false);
+  const locateTimerRef = useRef(0);
+  const hoverKeyRef = useRef("");
+  const inputsRef = useRef({});
+
   const [mapType, setMapType] = useState("street");
   const [searchText, setSearchText] = useState("");
   const [results, setResults] = useState([]);
@@ -181,22 +144,82 @@ export default function MapExplorer({ theme }) {
   const [riskDate, setRiskDate] = useState("");
   const [historyMonths, setHistoryMonths] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(0);
-  const [historyData, setHistoryData] = useState(null);
-  const [historyStatus, setHistoryStatus] = useState("idle");
-  const [historyError, setHistoryError] = useState("");
-  const [historyHover, setHistoryHover] = useState("");
-  const [riskData, setRiskData] = useState(null);
-  const [riskStatus, setRiskStatus] = useState("loading");
-  const [riskError, setRiskError] = useState("");
-  const [selectedCell, setSelectedCell] = useState(null);
-  const [cellStatus, setCellStatus] = useState("idle");
-  const [cellError, setCellError] = useState("");
-  const [timeseries, setTimeseries] = useState(null);
-  const [timeseriesStatus, setTimeseriesStatus] = useState("idle");
-  const [selectedFeature, setSelectedFeature] = useState("risk");
-  const currentStyle = useMemo(() => getMapStyle(mapType, theme), [mapType, theme]);
-  const viewModeRef = useRef(viewMode);
-viewModeRef.current = viewMode;
+  const [historyMonth, setHistoryMonth] = useState("");
+  const [monthsError, setMonthsError] = useState("");
+  const [heat, setHeat] = useState({ ...NO_HEAT, status: "loading" });
+  const [hoverText, setHoverText] = useState("");
+  const [selected, setSelected] = useState(null);
+
+  // Latest values for code that runs from map events, outside React's render cycle.
+  inputsRef.current = { viewMode, place, month: historyMonth, date: selectedDate };
+  wantedBasemapRef.current = { type: mapType, theme };
+
+  /* ---------------------------- heatmap loading ---------------------------- */
+
+  // The single entry point for heatmap updates: mode/place/date/month changes and the
+  // end of every pan/zoom call this. It works out which dataset the view needs, does
+  // nothing if that dataset is already shown or loading, and lets only the newest
+  // request paint (older ones are cancelled, or ignored if already running).
+  const refreshHeatmap = useCallback(() => {
+    const map = mapRef.current;
+    // While the camera moves, wait: moveend calls this again with the final view.
+    if (!map || !readyRef.current || locatingRef.current || map.isMoving()) return;
+    const { viewMode: mode, place: currentPlace, month, date } = inputsRef.current;
+    const bounds = map.getBounds();
+    const view = {
+      place: currentPlace,
+      zoom: map.getZoom(),
+      viewport: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+      current: heatRef.current.plan,
+    };
+    const plan = mode === "risk" ? planRisk({ ...view, date }) : planHistory({ ...view, month });
+    if (!plan || plan.key === heatRef.current.plan?.key) return;
+
+    heatRef.current.controller?.abort();
+    const controller = new AbortController();
+    const ticket = heatRef.current.ticket + 1;
+    heatRef.current = { ticket, plan, controller };
+
+    if (plan.empty) {
+      setHeatmap(map, mode, null);
+      setHeat({ ...NO_HEAT, status: plan.empty });
+      return;
+    }
+    // The previous heatmap stays visible until the new data arrives.
+    setHeat((current) => ({ ...current, status: "loading", error: "" }));
+    plan.load(controller.signal)
+      .then((result) => {
+        if (heatRef.current.ticket !== ticket || mapRef.current !== map) return;
+        setHeatmap(map, mode, result.geojson);
+        if (mode === "risk" && result.date && !inputsRef.current.date) setRiskDate(result.date);
+        setHeat({
+          status: result.cellCount ? "ready" : "empty",
+          error: "",
+          cellCount: result.cellCount,
+          truncated: result.truncated,
+          resolution: result.resolution,
+        });
+      })
+      .catch((error) => {
+        if (heatRef.current.ticket !== ticket || error.name === "AbortError") return;
+        heatRef.current.plan = null; // so the next change or move retries
+        const notFound = error.status === 404;
+        if (notFound && mapRef.current === map) setHeatmap(map, mode, null);
+        setHeat({ ...NO_HEAT, status: notFound ? "empty" : "error", error: notFound ? "" : error.message });
+      });
+  }, []);
+
+  /* ------------------------------- map setup ------------------------------- */
+
+  const syncBasemap = useCallback(() => {
+    const map = mapRef.current;
+    const shown = basemapRef.current;
+    const wanted = wantedBasemapRef.current;
+    if (!map || !readyRef.current || (shown.type === wanted.type && shown.theme === wanted.theme)) return;
+    applyBasemap(map, wanted.type, wanted.theme, shown.type !== wanted.type);
+    basemapRef.current = { ...wanted };
+  }, []);
+
   const markUserLocation = useCallback((position) => {
     const location = [position.coords.longitude, position.coords.latitude];
     if (!mapRef.current) return;
@@ -213,349 +236,191 @@ viewModeRef.current = viewMode;
     setLocationMessage("");
   }, []);
 
-  const requestLocation = useCallback(() => {
+  // `initial`: on first load, hold the heatmap request briefly until we know whether the
+  // map is about to fly to the user, so we don't start a slow load for the world view.
+  const requestLocation = useCallback((initial = false) => {
+    const release = () => {
+      if (!initial || !locatingRef.current) return;
+      locatingRef.current = false;
+      window.clearTimeout(locateTimerRef.current);
+      refreshHeatmap();
+    };
     if (!navigator.geolocation) {
       setLocationMessage("Location is not available in this browser. Showing the global view.");
+      release();
       return;
+    }
+    if (initial) {
+      locatingRef.current = true;
+      locateTimerRef.current = window.setTimeout(release, LOCATION_WAIT_MS);
     }
     setLocationMessage("Finding your location...");
     navigator.geolocation.getCurrentPosition(
-      markUserLocation,
-      () => setLocationMessage("Location unavailable. You can search for a place instead."),
+      (position) => {
+        markUserLocation(position);
+        release();
+      },
+      () => {
+        setLocationMessage("Location unavailable. You can search for a place instead.");
+        release();
+      },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
     );
-  }, [markUserLocation]);
+  }, [markUserLocation, refreshHeatmap]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return undefined;
 
+    let map;
     try {
       // The map instance stays in a ref; its internal render loop handles pan/zoom
       // without pushing high-frequency camera updates through React.
-      const map = new MapLibreMap({
+      map = new MapLibreMap({
         container: containerRef.current,
-        style: getMapStyle("street", selectedThemeRef.current),
+        style: initialStyle(wantedBasemapRef.current.type, wantedBasemapRef.current.theme),
         ...STARTING_VIEW,
+        minZoom: 2,
+        maxZoom: 18,
         maxTileCacheSize: 512,
         refreshExpiredTiles: false,
         attributionControl: false,
-        cooperativeGestures: true,
-      });
-      mapRef.current = map;
-      map.addControl(new AttributionControl({ compact: true }), "bottom-right");
-      map.on("load", () => {
-        setMapReady(true);
-        requestLocation();
-      });
-      map.on("error", (event) => {
-        if (event.error) setMapError("Some map tiles could not be loaded. Check your connection.");
+        // Full-page map: plain scroll / drag zoom and pan directly. Rotation and tilt are
+        // off because accidental right-drag rotation is easy and useless on a flat grid.
+        dragRotate: false,
+        pitchWithRotate: false,
+        touchPitch: false,
       });
     } catch (error) {
       console.error("Could not initialize the map:", error);
       setMapError("The interactive map could not be initialized in this browser.");
-    }
-
-    return () => {
-      userMarkerRef.current?.remove();
-      searchMarkerRef.current?.remove();
-      mapRef.current?.remove();
-      mapRef.current = null;
-    };
-  }, [requestLocation]);
-
-  useEffect(() => {
-    selectedThemeRef.current = theme;
-    const styleKey = `${mapType}:${theme}`;
-    if (mapRef.current && lastStyleKeyRef.current !== styleKey) {
-      mapRef.current.setStyle(currentStyle);
-      lastStyleKeyRef.current = styleKey;
-    }
-  }, [currentStyle, mapType, theme]);
-
-  const paintRiskLayer = useCallback((data) => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    if (map.getLayer(RISK_FILL)) map.removeLayer(RISK_FILL);
-    if (map.getLayer(RISK_OUTLINE)) map.removeLayer(RISK_OUTLINE);
-    if (map.getSource(RISK_SOURCE)) map.removeSource(RISK_SOURCE);
-    map.addSource(RISK_SOURCE, { type: "geojson", data });
-    map.addLayer({
-      id: RISK_FILL,
-      type: "fill",
-      source: RISK_SOURCE,
-      paint: {
-        "fill-color": [
-          "interpolate", ["linear"], ["coalesce", ["get", "value"], 0],
-          0, "#35b985", 0.1, "#b9d947", 0.25, "#f5c84c", 0.5, "#ee7045", 1, "#c63357",
-        ],
-        "fill-opacity": 0.68,
-      },
-    });
-    map.addLayer({
-      id: RISK_OUTLINE,
-      type: "line",
-      source: RISK_SOURCE,
-      paint: { "line-color": "rgba(255,255,255,0.22)", "line-width": 0.6 },
-    });
-  }, []);
-
-  const paintHistoryLayer = useCallback((data) => {
-  if (viewModeRef.current !== "history") return;
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    if (map.getLayer(HISTORY_FILL)) map.removeLayer(HISTORY_FILL);
-    if (map.getSource(HISTORY_SOURCE)) map.removeSource(HISTORY_SOURCE);
-    const cellDeg = data.cell_deg || 0.1;
-    const features = (data.cells || []).map(([row, column, value]) => ({
-      type: "Feature",
-      geometry: {
-        type: "Polygon",
-        coordinates: [[
-          [column * cellDeg, row * cellDeg],
-          [(column + 1) * cellDeg, row * cellDeg],
-          [(column + 1) * cellDeg, (row + 1) * cellDeg],
-          [column * cellDeg, (row + 1) * cellDeg],
-          [column * cellDeg, row * cellDeg],
-        ]],
-      },
-      properties: { value },
-    }));
-    const sorted = (data.cells || []).map((c) => c[2]).sort((a, b) => a - b);
-const q = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] || 0;
-const stops = [1, q(0.5), q(0.75), q(0.9), q(0.98)];
-for (let i = 1; i < stops.length; i += 1) if (stops[i] <= stops[i - 1]) stops[i] = stops[i - 1] + 1;
-    map.addSource(HISTORY_SOURCE, { type: "geojson", data: { type: "FeatureCollection", features } });
-    map.addLayer({
-      id: HISTORY_FILL,
-      type: "fill",
-      source: HISTORY_SOURCE,
-      paint: {
-        "fill-color": [
-	  "interpolate", ["linear"], ["coalesce", ["get", "value"], 0],
-	  0, "#2e9e5b",
-	  stops[0], "#8cc152",
-	  stops[1], "#f5c84c",
-	  stops[2], "#ee8a3c",
-	  stops[3], "#d9482b",
-	  stops[4], "#7f0f2a",
-	],
-	"fill-opacity": 0.7,
-      },
-    });
-  }, []);
-
-  const clearRiskLayer = useCallback(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    if (map.getLayer(RISK_FILL)) map.removeLayer(RISK_FILL);
-    if (map.getLayer(RISK_OUTLINE)) map.removeLayer(RISK_OUTLINE);
-    if (map.getSource(RISK_SOURCE)) map.removeSource(RISK_SOURCE);
-  }, []);
-
-  useEffect(() => {
-    if (viewMode !== "risk") return undefined;
-    setRiskError("");
-    setSelectedCell(null);
-    if (!place) {
-      setRiskData(null);
-      setRiskStatus("noplace");
-      clearRiskLayer();
       return undefined;
     }
-    let active = true;
-    setRiskStatus("loading");
-    clearRiskLayer();
-    // No date typed yet -> the backend picks the latest date that has predictions.
-    loadRiskForPlace(place.bbox, selectedDate || undefined)
-      .then((data) => {
-        if (!active) return;
-        setRiskData(data);
-        if (data.metadata?.date && !selectedDate) setRiskDate(data.metadata.date);
-        setRiskStatus(data.features.length ? "ready" : "empty");
-        if (mapRef.current?.isStyleLoaded()) paintRiskLayer(data);
-      })
-      .catch((error) => {
-        if (!active) return;
-        setRiskData(null);
-        setRiskStatus(error.status === 404 ? "empty" : "error");
-        setRiskError(error.status === 404 ? "" : error.message);
-      });
-    return () => { active = false; };
-  }, [paintRiskLayer, clearRiskLayer, selectedDate, viewMode, place]);
+    basemapRef.current = { ...wantedBasemapRef.current };
+    map.touchZoomRotate.disableRotation();
+    map.keyboard.disableRotation();
+    mapRef.current = map;
+    map.addControl(new AttributionControl({ compact: true }), "bottom-right");
+
+    map.on("load", () => {
+      addOverlayLayers(map);
+      readyRef.current = true;
+      syncBasemap();
+      setMapReady(true);
+      requestLocation(true);
+      refreshHeatmap();
+    });
+    // Fires once at the end of every pan/zoom/fly (not on every frame).
+    map.on("moveend", refreshHeatmap);
+
+    // Hover reads the value of the cell under the cursor locally; React state only
+    // changes when the cursor moves onto a different cell.
+    map.on("mousemove", (event) => {
+      if (!readyRef.current) return;
+      const feature = map.queryRenderedFeatures(event.point, { layers: [HEAT_FILL] })[0];
+      map.getCanvas().style.cursor = feature ? "pointer" : "";
+      const { viewMode: mode, month } = inputsRef.current;
+      const cell = feature ? cellFromFeature(feature, mode, month) : null;
+      const key = cell ? `${mode}|${cell.row}|${cell.col}|${cell.deg}|${cell.value}` : "";
+      if (key === hoverKeyRef.current) return;
+      hoverKeyRef.current = key;
+      setHoverText(cell ? hoverLabel(cell) : "");
+    });
+    map.on("mouseout", () => {
+      hoverKeyRef.current = "";
+      setHoverText("");
+    });
+    map.on("click", (event) => {
+      if (!readyRef.current) return;
+      const feature = map.queryRenderedFeatures(event.point, { layers: [HEAT_FILL] })[0];
+      const { viewMode: mode, month } = inputsRef.current;
+      const cell = feature ? cellFromFeature(feature, mode, month) : null;
+      if (cell) setSelected(cell);
+    });
+    map.on("error", (event) => {
+      if (event.error) setMapError("Some map tiles could not be loaded. Check your connection.");
+    });
+
+    return () => {
+      readyRef.current = false;
+      locatingRef.current = false;
+      window.clearTimeout(locateTimerRef.current);
+      heatRef.current.controller?.abort();
+      heatRef.current = { ticket: heatRef.current.ticket + 1, plan: null, controller: null };
+      userMarkerRef.current?.remove();
+      searchMarkerRef.current?.remove();
+      userMarkerRef.current = null;
+      searchMarkerRef.current = null;
+      map.remove();
+      mapRef.current = null;
+    };
+  }, [refreshHeatmap, requestLocation, syncBasemap]);
+
+  // Base map type / theme changes swap only the raster base layer.
+  useEffect(() => {
+    syncBasemap();
+  }, [mapType, theme, syncBasemap]);
+
+  // Tile/location notices are temporary.
+  useEffect(() => {
+    if (!mapError) return undefined;
+    const timer = window.setTimeout(() => setMapError(""), NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [mapError]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    if (viewMode === "risk" && map.getLayer(HISTORY_FILL)) {
-      map.removeLayer(HISTORY_FILL);
-      if (map.getSource(HISTORY_SOURCE)) map.removeSource(HISTORY_SOURCE);
-    }
-    if (viewMode === "history" && map.getLayer(RISK_FILL)) {
-      map.removeLayer(RISK_FILL);
-      if (map.getLayer(RISK_OUTLINE)) map.removeLayer(RISK_OUTLINE);
-      if (map.getSource(RISK_SOURCE)) map.removeSource(RISK_SOURCE);
-    }
-  }, [viewMode]);
+    if (!locationMessage || locationMessage.startsWith("Finding")) return undefined;
+    const timer = window.setTimeout(() => setLocationMessage(""), NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [locationMessage]);
 
+  /* --------------------------- heatmap triggers ---------------------------- */
+
+  // Mode switch: remove the other mode's cells straight away, then load this mode.
   useEffect(() => {
-    if (viewMode !== "history") return undefined;
+    heatRef.current.controller?.abort();
+    heatRef.current = { ticket: heatRef.current.ticket + 1, plan: null, controller: null };
+    hoverKeyRef.current = "";
+    setHoverText("");
+    setSelected(null);
+    setHeat({ ...NO_HEAT, status: "loading" });
+    if (mapRef.current && readyRef.current) setHeatmap(mapRef.current, viewMode, null);
+    refreshHeatmap();
+  }, [viewMode, refreshHeatmap]);
+
+  // Place, forecast date or history month changed (or the map just became ready).
+  useEffect(() => {
+    refreshHeatmap();
+  }, [place, selectedDate, historyMonth, mapReady, refreshHeatmap]);
+
+  // Outline the selected cell.
+  useEffect(() => {
+    if (mapRef.current && readyRef.current) setSelectedCell(mapRef.current, selected);
+  }, [selected, mapReady]);
+
+  // History months load once, so the slider keeps its position across mode switches.
+  useEffect(() => {
     let active = true;
-    setHistoryStatus("loading");
-    setHistoryError("");
     api.historyMonths()
       .then(({ first, last }) => {
-        const months = [];
-        const cursor = new Date(`${first}T00:00:00Z`);
-        const end = new Date(`${last}T00:00:00Z`);
-        while (cursor <= end) {
-          months.push(cursor.toISOString().slice(0, 10));
-          cursor.setUTCMonth(cursor.getUTCMonth() + 1);
-        }
-        if (active) {
-          setHistoryMonths(months);
-          setHistoryIndex(Math.max(0, months.length - 1));
-        }
-      })
-      .catch((error) => { if (active) { setHistoryStatus("error"); setHistoryError(error.message); } });
-    return () => { active = false; };
-  }, [viewMode]);
-
-  useEffect(() => {
-    if (viewMode !== "history" || !historyMonths.length) return undefined;
-    let active = true;
-    setHistoryStatus("loading");
-    const month = historyMonths[historyIndex];
-    // A small place (city / district) gets the fine 0.01 degree cells; a big one (state)
-    // gets the national 0.1 degree grid cut down to the place.
-    const small = place && bboxArea(place.bbox) <= 9;
-    const load = small
-      ? api.historyDetail(bboxText(place.bbox), month).catch(() => api.historyGrid(month).then((grid) => cropGrid(grid, place.bbox)))
-      : api.historyGrid(month).then((grid) => (place ? cropGrid(grid, place.bbox) : grid));
-    load
-      .then((data) => {
         if (!active) return;
-        setHistoryError("");
-        setHistoryData(data);
-        setHistoryStatus(data.cells?.length ? "ready" : "empty");
-        if (mapRef.current?.isStyleLoaded()) paintHistoryLayer(data);
+        const months = monthsBetween(first, last);
+        setHistoryMonths(months);
+        setHistoryIndex(Math.max(0, months.length - 1));
+        setHistoryMonth(months.at(-1) || "");
       })
-      .catch((error) => { if (active) { setHistoryStatus("error"); setHistoryError(error.message); } });
+      .catch((error) => { if (active) setMonthsError(error.message); });
     return () => { active = false; };
-  }, [historyIndex, historyMonths, paintHistoryLayer, viewMode, place]);
+  }, []);
 
+  // The slider label moves instantly; data loads once the slider settles.
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || viewMode !== "history" || !historyMonths.length) return undefined;
-    let ticket = 0;
-    const loadDetail = () => {
-      if (map.getZoom() < 9) return;
-      const bounds = map.getBounds();
-      const bbox = [
-        bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth(),
-      ].map((value) => value.toFixed(4)).join(",");
-      const current = ++ticket;
-      api.historyDetail(bbox, historyMonths[historyIndex])
-        .then((data) => {
-          if (current === ticket) {
-            setHistoryData(data);
-            paintHistoryLayer(data);
-          }
-        })
-        .catch((error) => { if (current === ticket) setHistoryError(error.message); });
-    };
-        map.on("moveend", loadDetail);
-    loadDetail();
-    return () => { ticket += 1; map.off("moveend", loadDetail); };
-  }, [historyIndex, historyMonths, mapReady, paintHistoryLayer, viewMode]);
+    const month = historyMonths[historyIndex];
+    if (!month || month === historyMonth) return undefined;
+    const timer = window.setTimeout(() => setHistoryMonth(month), SLIDER_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [historyIndex, historyMonths, historyMonth]);
 
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || viewMode !== "history" || !map.getLayer(HISTORY_FILL)) return undefined;
-    let controller;
-    const handleMove = (event) => {
-      const feature = map.queryRenderedFeatures(event.point, { layers: [HISTORY_FILL] })[0];
-      if (!feature) return;
-      if (controller) controller.abort();
-      controller = new AbortController();
-      const coordinates = feature.geometry.coordinates[0];
-      const lat = (coordinates[0][1] + coordinates[2][1]) / 2;
-      const lon = (coordinates[0][0] + coordinates[2][0]) / 2;
-      api.historyPoint(lat, lon, historyData?.cell_deg || 0.1)
-        .then((data) => setHistoryHover(`${data.fires.total.toLocaleString()} fires in this cell`))
-        .catch(() => {});
-    };
-    const clear = () => setHistoryHover("");
-    map.on("mousemove", handleMove);
-    map.on("mouseleave", HISTORY_FILL, clear);
-    return () => {
-      if (controller) controller.abort();
-      map.off("mousemove", handleMove);
-      map.off("mouseleave", HISTORY_FILL, clear);
-    };
-  }, [historyData, viewMode, mapReady]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return undefined;
-    const onStyleLoad = () => {
-      if (viewMode === "risk" && riskData) paintRiskLayer(riskData);
-      if (viewMode === "history" && historyData) paintHistoryLayer(historyData);
-    };
-    map.on("style.load", onStyleLoad);
-    return () => map.off("style.load", onStyleLoad);
-  }, [historyData, paintHistoryLayer, paintRiskLayer, riskData, viewMode]);
-
-  const selectCell = useCallback((cellId) => {
-    setSelectedCell(null);
-    setCellStatus("loading");
-    setCellError("");
-    setTimeseries(null);
-    setTimeseriesStatus("idle");
-    api.cell(cellId, selectedDate || riskDate)
-      .then((data) => {
-        setSelectedCell(data);
-        setCellStatus("ready");
-      })
-      .catch((error) => {
-        setCellStatus("error");
-        setCellError(error.message);
-      });
-  }, [selectedDate, riskDate]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || (!map.getLayer(RISK_FILL) && !map.getLayer(HISTORY_FILL))) return undefined;
-    const handleClick = (event) => {
-      const layer = viewMode === "history" ? HISTORY_FILL : RISK_FILL;
-      const features = map.queryRenderedFeatures(event.point, { layers: [layer] });
-      const cellId = features[0]?.properties?.cell_id;
-      if (cellId && viewMode === "risk") selectCell(cellId);
-    };
-    const handleEnter = () => { map.getCanvas().style.cursor = "pointer"; };
-    const handleLeave = () => { map.getCanvas().style.cursor = ""; };
-    const layer = viewMode === "history" ? HISTORY_FILL : RISK_FILL;
-    map.on("click", layer, handleClick);
-    map.on("mouseenter", layer, handleEnter);
-    map.on("mouseleave", layer, handleLeave);
-    return () => {
-      map.off("click", layer, handleClick);
-      map.off("mouseenter", layer, handleEnter);
-      map.off("mouseleave", layer, handleLeave);
-    };
-  }, [selectCell, mapReady, riskData, historyData, viewMode]);
-
-  function loadTimeseries(feature) {
-    if (!selectedCell) return;
-    const end = selectedCell.date || selectedDate || riskDate;
-    const startDate = new Date(`${end}T00:00:00Z`);
-    startDate.setUTCDate(startDate.getUTCDate() - 13);
-    const start = startDate.toISOString().slice(0, 10);
-    setSelectedFeature(feature);
-    setTimeseriesStatus("loading");
-    api.timeseries(selectedCell.cell_id, feature, start, end)
-      .then((data) => { setTimeseries(data); setTimeseriesStatus(data.points?.length ? "ready" : "empty"); })
-      .catch((error) => { setTimeseriesStatus("error"); setCellError(error.message); });
-  }
+  /* --------------------------------- search -------------------------------- */
 
   useEffect(() => {
     const query = searchText.trim();
@@ -597,23 +462,24 @@ for (let i = 1; i < stops.length; i += 1) if (stops[i] <= stops[i - 1]) stops[i]
     };
   }, [searchText]);
 
-  const selectPlace = useCallback((place) => {
+  const selectPlace = useCallback((nextPlace) => {
     if (!mapRef.current) return;
-    setPlace(place);
+    setPlace(nextPlace);
+    setSelected(null);
     mapRef.current.fitBounds(
-      [[place.bbox[0], place.bbox[1]], [place.bbox[2], place.bbox[3]]],
+      [[nextPlace.bbox[0], nextPlace.bbox[1]], [nextPlace.bbox[2], nextPlace.bbox[3]]],
       { padding: 60, maxZoom: 11, duration: 1400 },
     );
     if (!searchMarkerRef.current) {
       const element = document.createElement("div");
       element.className = "search-location-marker";
       searchMarkerRef.current = new Marker({ element, anchor: "bottom" })
-        .setLngLat(place.center)
+        .setLngLat(nextPlace.center)
         .addTo(mapRef.current);
     } else {
-      searchMarkerRef.current.setLngLat(place.center);
+      searchMarkerRef.current.setLngLat(nextPlace.center);
     }
-    const selectedLabel = place.label.split(",")[0];
+    const selectedLabel = nextPlace.label.split(",")[0];
     selectedResultRef.current = selectedLabel;
     setSearchText(selectedLabel);
     setResults([]);
@@ -627,7 +493,7 @@ for (let i = 1; i < stops.length; i += 1) if (stops[i] <= stops[i - 1]) stops[i]
     setResults([]);
     setHasSearched(false);
     setPlace(null);
-    setSelectedCell(null);
+    setSelected(null);
     if (searchMarkerRef.current) { searchMarkerRef.current.remove(); searchMarkerRef.current = null; }
   }
 
@@ -638,6 +504,28 @@ for (let i = 1; i < stops.length; i += 1) if (stops[i] <= stops[i - 1]) stops[i]
       requestLocation();
     }
   }
+
+  /* --------------------------------- render -------------------------------- */
+
+  const placeName = place?.label.split(",")[0];
+  const riskBadge = {
+    idle: "",
+    noplace: "Search a place",
+    loading: "Loading risk grid",
+    error: "Unavailable",
+    empty: "No risk data here",
+    ready: `${heat.cellCount.toLocaleString()} cells${heat.truncated ? " (partial)" : ""}`,
+  }[heat.status];
+  const historyBadge = historyMonths[historyIndex]
+    ? `Up to ${historyMonths[historyIndex].slice(0, 7)}${heat.status === "loading" ? " · loading…" : ""}`
+    : "Loading history";
+  const stripText = !mapReady
+    ? "LOADING BASEMAP"
+    : [
+      viewMode === "risk" ? "FIRE RISK · PREDICTED PROBABILITY" : "FIRE HISTORY · CUMULATIVE HOTSPOTS",
+      heat.status === "loading" ? "LOADING…" : heat.resolution,
+      hoverText,
+    ].filter(Boolean).join(" · ");
 
   return (
     <section className="map-workspace" aria-label="Interactive global map">
@@ -661,9 +549,7 @@ for (let i = 1; i < stops.length; i += 1) if (stops[i] <= stops[i - 1]) stops[i]
           <>
             <label htmlFor="risk-date"><CalendarDays size={14} /> FORECAST DATE</label>
             <input id="risk-date" type="date" value={selectedDate || riskDate} onChange={(event) => setSelectedDate(event.target.value)} />
-            <span className={`risk-state risk-state-${riskStatus}`}>
-              {riskStatus === "noplace" ? "Search a place" : riskStatus === "loading" ? "Loading risk grid" : riskStatus === "error" ? "Unavailable" : riskStatus === "empty" ? "No risk data here" : `${riskData?.features?.length || 0} cells`}
-            </span>
+            <span className={`risk-state risk-state-${heat.status}`}>{riskBadge}</span>
           </>
         ) : (
           <>
@@ -678,9 +564,7 @@ for (let i = 1; i < stops.length; i += 1) if (stops[i] <= stops[i - 1]) stops[i]
               onChange={(event) => setHistoryIndex(Number(event.target.value))}
               disabled={!historyMonths.length}
             />
-            <span className={`risk-state risk-state-${historyStatus}`}>
-              {historyMonths[historyIndex] ? `Up to ${historyMonths[historyIndex].slice(0, 7)}` : "Loading history"}
-            </span>
+            <span className={`risk-state risk-state-${heat.status}`}>{historyBadge}</span>
           </>
         )}
       </div>
@@ -713,17 +597,17 @@ for (let i = 1; i < stops.length; i += 1) if (stops[i] <= stops[i - 1]) stops[i]
         {(results.length > 0 || searchError || hasSearched) && (
           <div className="search-results" role="listbox" aria-label="Search results">
             {searchError && <p className="search-feedback" role="alert">{searchError}</p>}
-            {results.map((place) => (
+            {results.map((result) => (
               <button
                 className="search-result"
                 type="button"
                 role="option"
                 aria-selected="false"
-                key={place.id}
-                onClick={() => selectPlace(place)}
+                key={result.id}
+                onClick={() => selectPlace(result)}
               >
                 <MapPin size={16} />
-                <span>{place.label}</span>
+                <span>{result.label}</span>
               </button>
             ))}
             {results.length === 0 && !searchError && <p className="search-feedback">No places found.</p>}
@@ -755,6 +639,12 @@ for (let i = 1; i < stops.length; i += 1) if (stops[i] <= stops[i - 1]) stops[i]
         >
           <Crosshair size={19} />
         </button>
+        <button className="map-tool" type="button" onClick={() => mapRef.current?.zoomIn()} aria-label="Zoom in" title="Zoom in" disabled={!mapReady}>
+          <Plus size={19} />
+        </button>
+        <button className="map-tool" type="button" onClick={() => mapRef.current?.zoomOut()} aria-label="Zoom out" title="Zoom out" disabled={!mapReady}>
+          <Minus size={19} />
+        </button>
       </div>
 
       {isStyleMenuOpen && (
@@ -776,65 +666,37 @@ for (let i = 1; i < stops.length; i += 1) if (stops[i] <= stops[i - 1]) stops[i]
           </div>
           <div className="layer-extension">
             <span className="extension-dot" />
-            <span>FIRE RISK LAYER ACTIVE</span>
-            <small>Colour shows predicted probability · click a cell for details</small>
+            <span>{viewMode === "risk" ? "FIRE RISK LAYER ACTIVE" : "FIRE HISTORY LAYER ACTIVE"}</span>
+            <small>
+              {viewMode === "risk"
+                ? "Colour shows predicted probability · click a cell for details"
+                : "Colour shows recorded fire count · zoom in for 1 km cells · click a cell for details"}
+            </small>
           </div>
         </div>
       )}
 
       <div className="map-atmosphere">
         <span className="atmosphere-icon"><Orbit size={14} /></span>
-        <span>{mapReady ? (viewMode === "risk" ? "FIRE RISK · PREDICTED PROBABILITY" : `FIRE HISTORY · CUMULATIVE HOTSPOTS${historyHover ? ` · ${historyHover}` : ""}`) : "LOADING BASEMAP"}</span>
+        <span>{stripText}</span>
       </div>
       <div className="map-scale-label">NAVIGATE · OBSERVE · UNDERSTAND</div>
-      {viewMode === "risk" && riskStatus === "noplace" && <div className="map-status risk-error" role="status">Search a place (a city, district or state) to see its fire risk.</div>}
-      {viewMode === "risk" && riskStatus === "empty" && <div className="map-status risk-error" role="status">No risk predictions for {place?.label.split(",")[0]}{selectedDate ? ` on ${selectedDate}` : ""}. Predictions only exist for areas and dates that have been scored.</div>}
-      {riskError && <div className="map-status risk-error" role="alert"><AlertCircle size={14} /> {riskError}</div>}
-      {historyError && viewMode === "history" && <div className="map-status risk-error" role="alert"><AlertCircle size={14} /> {historyError}</div>}
-      {selectedCell && (
-        <aside className="risk-detail-panel" aria-label="Selected cell risk details">
-          <button className="detail-close" type="button" onClick={() => { setSelectedCell(null); setTimeseries(null); }} aria-label="Close risk details"><X size={15} /></button>
-          <span className="detail-kicker"><Activity size={13} /> CELL {selectedCell.cell_id}</span>
-          <h2>{selectedCell.location?.district || "Selected area"}</h2>
-          <p className="detail-location">{selectedCell.location?.lat?.toFixed(3)}, {selectedCell.location?.lon?.toFixed(3)} · {selectedCell.date}</p>
-          {selectedCell.prediction ? (
-            <div className={`risk-score risk-${selectedCell.prediction.level}`}>
-              <strong>{Math.round(selectedCell.prediction.probability * 100)}%</strong>
-              <span>{selectedCell.prediction.level} fire risk</span>
-            </div>
-          ) : (
-            <p className="detail-feedback">No prediction for this cell on {selectedCell.date}.</p>
-          )}
-          <div className="weather-grid">
-            <span><b>{selectedCell.weather?.temp_c ?? "—"}°</b> temperature</span>
-            <span><b>{selectedCell.weather?.rainfall_mm ?? "—"} mm</b> rainfall</span>
-            <span><b>{selectedCell.weather?.wind_speed ?? "—"}</b> wind speed</span>
-            <span><b>{selectedCell.static?.elevation ?? "—"} m</b> elevation</span>
-          </div>
-          <div className="detail-actions">
-            <label htmlFor="detail-feature">Trend</label>
-            <div className="select-wrap">
-              <select id="detail-feature" value={selectedFeature} onChange={(event) => loadTimeseries(event.target.value)}>
-                <option value="risk">Predicted risk</option>
-                <option value="fwi">Fire weather index</option>
-                <option value="rainfall_mm">Rainfall</option>
-                <option value="temp_c">Temperature</option>
-              </select>
-              <ChevronDown size={14} />
-            </div>
-          </div>
-          {cellStatus === "loading" && <p className="detail-feedback">Loading local prediction…</p>}
-          {cellStatus === "error" && <p className="detail-feedback detail-error">{cellError}</p>}
-          {timeseriesStatus === "idle" && <button className="trend-button" type="button" onClick={() => loadTimeseries(selectedFeature)}>Load 14-day trend</button>}
-          {timeseriesStatus === "loading" && <p className="detail-feedback">Loading trend…</p>}
-          {timeseriesStatus === "error" && <p className="detail-feedback detail-error">{cellError}</p>}
-          {timeseriesStatus === "empty" && <p className="detail-feedback">No trend data for this period.</p>}
-          {timeseriesStatus === "ready" && (
-            <div className="trend-list" aria-label={`${timeseries.label} trend`}>
-              {timeseries.points.map((point) => <div className="trend-row" key={point.date}><span>{point.date.slice(5)}</span><i><em style={{ width: `${Math.min(100, Math.max(3, (point.value || 0) * (selectedFeature === "risk" ? 100 : 10)))}%` }} /></i><b>{point.value ?? "—"}{timeseries.unit && ` ${timeseries.unit}`}</b></div>)}
-            </div>
-          )}
-        </aside>
+      {viewMode === "risk" && heat.status === "noplace" && (
+        <div className="map-status risk-error" role="status">Search a place (a city, district or state) or zoom in to see its fire risk.</div>
+      )}
+      {viewMode === "risk" && heat.status === "empty" && (
+        <div className="map-status risk-error" role="status">
+          No risk predictions for {placeName || "this area"}{selectedDate ? ` on ${selectedDate}` : ""}. Predictions only exist for areas and dates that have been scored.
+        </div>
+      )}
+      {heat.error && <div className="map-status risk-error" role="alert"><AlertCircle size={14} /> {heat.error}</div>}
+      {monthsError && viewMode === "history" && <div className="map-status risk-error" role="alert"><AlertCircle size={14} /> {monthsError}</div>}
+
+      {selected?.kind === "risk" && (
+        <RiskCellPanel cellId={selected.cellId} date={selectedDate || riskDate} onClose={() => setSelected(null)} />
+      )}
+      {selected?.kind === "history" && (
+        <HistoryCellPanel cell={selected} onClose={() => setSelected(null)} />
       )}
     </section>
   );

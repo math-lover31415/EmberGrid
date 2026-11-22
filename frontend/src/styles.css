@@ -450,9 +450,7 @@ button:focus-visible, input:focus-visible, a:focus-visible {
   height: 100%;
 }
 .map-canvas .maplibregl-canvas { outline: 0; }
-.theme-dark .map-canvas .maplibregl-canvas {
-  filter: invert(1) hue-rotate(180deg) brightness(0.72) contrast(0.9);
-}
+/* Dark mode darkens only the base map (raster paint in mapData.js), not the heatmap. */
 .map-vignette {
   position: absolute;
   z-index: 1;
@@ -728,6 +726,7 @@ button:focus-visible, input:focus-visible, a:focus-visible {
 .risk-score { display: flex; align-items: baseline; gap: 10px; margin: 18px 0; padding: 14px; border: 1px solid var(--chrome-line); border-radius: 8px; background: rgba(139, 227, 189, 0.06); }
 .risk-score strong { font-family: Manrope, sans-serif; font-size: 28px; }
 .risk-score span { color: var(--chrome-muted); font-size: 11px; text-transform: capitalize; }
+.risk-score .score-note { text-transform: none; }
 .risk-extreme, .risk-high { border-color: rgba(238, 112, 69, 0.45); color: #f5a16d; }
 .risk-moderate { border-color: rgba(245, 200, 76, 0.45); color: #f5d477; }
 .risk-low { border-color: rgba(53, 185, 133, 0.4); color: var(--accent); }

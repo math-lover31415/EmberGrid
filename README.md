@@ -10,5 +10,7 @@ Ember Grid, is a interactive web application designed to predict, visualize, and
 AI was used for the following purposes:
 - To look up syntax
 - To help interpret NASA VIIRS data columns
-- To generate suggestions for modelling viirs data
+- To generate suggestions for modelling VIIRS data
+- To generate scripts for Data Ingestion and running the pipeline
+- 
 

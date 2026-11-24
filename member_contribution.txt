@@ -5,6 +5,9 @@ Primarily worked on ML/data preparation, including CSV consolidation, model trai
 
 2. Giriraj Sahu - 26M0764
 Contribution percentage: 33%
+Worked on the Backend logic for auth, data retrieval, and services with Flask and SQLAlchemy
+Database Setup and Schema Design 
+Establishing data pipeline 
 
 3. MD Zahid Hussain - 26M0766
 Contribution percentage: 33%

@@ -1,0 +1,95 @@
+commit 279b6c94a63a2c4ed66689aed7ca7520a8e771c4
+Author: Pradyumn R Pai <pradyumn3.1415@gmail.com>
+Date:   Mon Nov 23 09:52:26 2026 +0530
+
+    readme
+
+commit e2ffcd0c6a628452eeddb881564b92cb9b11aee2
+Merge: ee4f4ba 7dda6be
+Author: Pradyumn R Pai <113020101+math-lover31415@users.noreply.github.com>
+Date:   Sun Nov 22 19:41:59 2026 +0530
+
+    Merge pull request #6 from math-lover31415/revert-5-copilot/get-nation-wide-data
+    
+    Revert "[WIP] Add script to fetch nation wide data from open_meteo"
+
+commit 7dda6becf5b55cc357ec02b597a83515a197c8a7
+Author: Pradyumn R Pai <113020101+math-lover31415@users.noreply.github.com>
+Date:   Sun Nov 22 19:41:29 2026 +0530
+
+    Revert "[WIP] Add script to fetch nation wide data from open_meteo"
+
+commit ee4f4baa30118d16be3147430720bff2f75a132c
+Merge: ca9f032 7cb0443
+Author: Pradyumn R Pai <113020101+math-lover31415@users.noreply.github.com>
+Date:   Sun Nov 22 19:39:03 2026 +0530
+
+    Merge pull request #5 from math-lover31415/copilot/get-nation-wide-data
+    
+    [WIP] Add script to fetch nation wide data from open_meteo
+
+commit 7cb0443a313e530a58ea0e32a64b244fdf4ac2b9
+Author: math-lover31415 <113020101+math-lover31415@users.noreply.github.com>
+Date:   Sun Nov 22 14:07:24 2026 +0000
+
+    Initial plan
+
+commit ca9f03295112f11f5135ab00b4f232a738eefda7
+Author: Pradyumn R Pai <pradyumn3.1415@gmail.com>
+Date:   Fri Nov 20 20:04:47 2026 +0530
+
+    Use random forest
+
+commit cb14ddc75a0fc38054d99b236c70a33d8fab9ba8
+Author: Pradyumn R Pai <pradyumn3.1415@gmail.com>
+Date:   Fri Nov 20 19:54:52 2026 +0530
+
+    Gradient Boosted model
+
+commit 7f498c12ba42e6dfcd7e222376ba6c235c3c10d6
+Author: Pradyumn R Pai <pradyumn3.1415@gmail.com>
+Date:   Fri Nov 20 19:17:30 2026 +0530
+
+    Preprocess data
+
+commit b07392c8075d015703af951a834bfdfa4df67034
+Author: Pradyumn R Pai <pradyumn3.1415@gmail.com>
+Date:   Fri Nov 20 18:53:53 2026 +0530
+
+    Open meteo
+
+commit 916146b9b4452d232b17bbc94125ae93523878fa
+Author: Pradyumn R Pai <pradyumn3.1415@gmail.com>
+Date:   Fri Nov 13 13:48:35 2026 +0530
+
+    store model
+
+commit 65cdf061182ad6307b27ed3de6c923b53981fce7
+Author: Pradyumn R Pai <pradyumn3.1415@gmail.com>
+Date:   Sat Oct 17 22:46:55 2026 +0530
+
+    Preliminary model training
+
+commit ee901929a81043c026ddb6fd9e269ea5c58ac37d
+Author: Pradyumn R Pai <pradyumn3.1415@gmail.com>
+Date:   Sat Oct 17 21:26:57 2026 +0530
+
+    Add bash script to combine CSV
+
+commit f6b992a291dbc790cebd282e13a99bc9b347a07b
+Author: Pradyumn R Pai <pradyumn3.1415@gmail.com>
+Date:   Sat Oct 17 18:19:10 2026 +0530
+
+    Explroe data
+
+commit 0bfe323c4f7a77df15a9dad007347cdcfef2c6af
+Author: Pradyumn R Pai <pradyumn3.1415@gmail.com>
+Date:   Sat Oct 17 17:28:42 2026 +0530
+
+    Combine multiple csv files
+
+commit c4d21a60bef4381ef53206818a0a5b94a7cc7844
+Author: Pradyumn R Pai <113020101+math-lover31415@users.noreply.github.com>
+Date:   Wed Sep 2 15:20:46 2026 +0530
+
+    Initial commit

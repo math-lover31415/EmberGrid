@@ -1,0 +1,68 @@
+commit 39d3de0607883343055fd54cd91febb17513b94f
+Merge: 8c5fcb3 150c9b2
+Author: Zahid8889 <102400053+Zahid8889@users.noreply.github.com>
+Date:   Mon Nov 23 00:19:24 2026 +0530
+
+    Merge pull request #9 from math-lover31415/frontend
+    
+    Frontend
+
+commit 150c9b23a2e9fb38904cb3ea13ce6ac64903a04e
+Author: Zahid8889 <zahidthelord@gmail.com>
+Date:   Sun Nov 22 18:43:38 2026 +0000
+
+    Restore updated backend code from main having problem in merging
+
+commit c9eb88eba3e5a88eb18d92368ddb66d93efe0167
+Author: Zahid8889 <zahidthelord@gmail.com>
+Date:   Sun Nov 22 18:28:44 2026 +0000
+
+    Some fixes in heatmap Loading and Risk prediction
+
+commit c9c4cbbe761916d00f1501154f1eca8459fbe4de
+Author: Zahid8889 <zahidthelord@gmail.com>
+Date:   Sun Nov 22 13:43:17 2026 +0000
+
+    fixing Heatmap Threshold and risk prediction
+
+commit fab1f7e7d57c640ce0fd9c6ffbc60979b1e37e27
+Author: Zahid8889 <zahidthelord@gmail.com>
+Date:   Sun Nov 22 10:08:27 2026 +0000
+
+    Fixing Auth Layout
+
+commit 6f6453801e76971159f5cf07815cfa37b39a2082
+Author: Zahid8889 <zahidthelord@gmail.com>
+Date:   Fri Nov 20 06:13:24 2026 +0000
+
+    Updating Login Register api logic and layout
+
+commit 7d259d6a7d3369a9641ae8897fd97ab8cb094721
+Author: Zahid8889 <zahidthelord@gmail.com>
+Date:   Sat Nov 14 17:31:16 2026 +0000
+
+    Testing Heatmap with dummy data
+
+commit 0fa9345672dc5db6794397a44064a0c6638d76d1
+Author: Zahid8889 <zahidthelord@gmail.com>
+Date:   Sat Oct 17 17:31:24 2026 +0000
+
+    trying wil MapLibre Library for rendering Maps
+
+commit 142b90c0451a74b95de088ed291a26751040d042
+Author: Zahid8889 <zahidthelord@gmail.com>
+Date:   Fri Oct 16 17:37:52 2026 +0000
+
+    Added Login and Register  Api Logic and Session handling
+
+commit 0cf1f7fd0d0fbe19cb648dafe0150f23ad13ebea
+Author: Zahid8889 <zahidthelord@gmail.com>
+Date:   Fri Oct 16 17:36:39 2026 +0000
+
+    Created Login and Register Pages
+
+commit e305397ccaca2e212444a697dfb0bb0988cdd9c2
+Author: Zahid8889 <zahidthelord@gmail.com>
+Date:   Fri Oct 16 17:33:25 2026 +0000
+
+    Initialized Frontend directory

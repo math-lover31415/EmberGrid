@@ -1,0 +1,17 @@
+Members
+1. Pradyumn R Pai - 26M0760
+Contribution percentage: 33%
+Primarily worked on ML/data preparation, including CSV consolidation, model training, and preprocessing.
+
+2. Giriraj Sahu - 26M0764
+Contribution percentage: 33%
+
+3. MD Zahid Hussain - 26M0766
+Contribution percentage: 33%
+Designed and built the React frontend; created Login, Register, Home/Map Page.
+User Authentication for login/registeration.
+Session Management: JWT Access Token + refresh token.
+Integration of Backend APIs for fetching data for rendering the heatmap on the homepage
+
+
+Individual logs are stored as separate files in a folder.
